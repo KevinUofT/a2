@@ -258,7 +258,6 @@ int sr_handle_ippacket(struct sr_instance* sr,
 
     /*check each interface, see whether the packet is to me */
     struct sr_if *iface;
-    struct sr_if* if_list;
     int flag = 0;
 
     for (iface = sr->if_list; iface != NULL; iface = iface->next){
@@ -268,13 +267,7 @@ int sr_handle_ippacket(struct sr_instance* sr,
       }
     }
     
-     /* if nat is valid, setup the icmp t8 header pointer */
-    if (enable_nat){
-
-      sr_icmp_t8_hdr_t* icmp_hrd_t8 = (sr_icmp_t8_hdr_t *)(packet 
-            + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));
-    }
-    
+    struct sr_if* if_list;
     if_list = sr_get_interface(sr, interface);
 
     /* If the packet is for me */
@@ -440,6 +433,9 @@ int sr_handle_ippacket(struct sr_instance* sr,
 
         /* if NAT on function*/
         if (enable_nat){
+
+          sr_icmp_t8_hdr_t* icmp_hrd_t8 = (sr_icmp_t8_hdr_t *)(packet 
+            + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));
 
           /* from inside to outside */
           if (strncmp(interface, eth1, 4)==0){
