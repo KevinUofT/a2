@@ -33,6 +33,8 @@
  *---------------------------------------------------------------------*/
 
 static int enable_nat = 0;
+const char eth1[32] = "eth2";
+const char eth2[32] = "eth1";
 
 void sr_init(struct sr_instance* sr, 
         int flag, 
@@ -253,17 +255,26 @@ int sr_handle_ippacket(struct sr_instance* sr,
     }
 
 
+
     /*check each interface, see whether the packet is to me */
     struct sr_if *iface;
+    struct sr_if* if_list;
     int flag = 0;
+
     for (iface = sr->if_list; iface != NULL; iface = iface->next){
       if (ip_hdr->ip_dst == iface->ip) {
         flag = 1;
         break;
       }
     }
+    
+     /* if nat is valid, setup the icmp t8 header pointer */
+    if (enable_nat){
 
-    struct sr_if* if_list;
+      sr_icmp_t8_hdr_t* icmp_hrd_t8 = (sr_icmp_t8_hdr_t *)(packet 
+            + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));
+    }
+    
     if_list = sr_get_interface(sr, interface);
 
     /* If the packet is for me */
@@ -305,117 +316,16 @@ int sr_handle_ippacket(struct sr_instance* sr,
             + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));
 
           /* Using Routing Table to Recheck */
+
           struct sr_rt* rtable;
-          rtable = sr_helper_rtable(sr, ip_hdr->ip_src);
+          rtable = sr_helper_rtable(sr, ip_hdr->ip_src);    
 
-          /* if NAT functionality is open  ---mark: A2*/
-          if (enable_nat == 1){
+          /* if Nat is enable */
 
-            sr_icmp_t8_hdr_t* new_icmp_hrd_t8 = (sr_icmp_t8_hdr_t *)(new_packet 
-            + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));
 
-            /* CASE internet is giving to me */
-            if (ip_hdr->ip_dst == (&(sr->nat))->ext_ip){
+          /* if Nat is disable, or keep original functionality */
+          if ((enable_nat == 0) || (strncmp(eth1, interface, 5) == 0) ){
 
-              /* ---need modiy: might need to updated the time in nat mapping
-                and update ehternet */
-
-              /* looking for the hosts using nat mapping */
-              struct sr_nat_mapping* copy;
-              copy = sr_nat_lookup_external(&(sr->nat), new_icmp_hrd_t8->port, nat_mapping_icmp);
-
-              /* if found */
-              if (copy != NULL){
-
-                /* looking for the interface to send out ---need modify: switch to eht1 if not work */
-                rtable = sr_helper_rtable(sr, copy->ip_int);
-
-                /* set up IP header ---need modify: checksum*/
-                new_ip_hdr->ip_ttl--;
-                /*new_ip_hdr->ip_src = (&(sr->nat))->int_ip;*/
-                new_ip_hdr->ip_dst = copy->ip_int;
-                new_ip_hdr->ip_sum = new_ip_hdr->ip_sum >> 16;
-                new_ip_hdr->ip_sum = cksum(new_ip_hdr, sizeof(sr_ip_hdr_t));
-
-                /* set up ICMP port */
-                new_icmp_hrd_t8->port = copy->aux_int;
-                new_icmp_hrd_t8->icmp_sum = new_icmp_hrd_t8->icmp_sum >> 16;
-                new_icmp_hrd_t8->icmp_sum = cksum(new_icmp_hrd_t8, len - sizeof(struct sr_ethernet_hdr) - 
-                sizeof(struct sr_ip_hdr));
-
-                free(copy);
-              }
-
-              /* drop the packet ---need modify*/
-              else{
-                rtable = (struct sr_rt *)malloc(sizeof(struct sr_rt));
-              }
-
-            }
-
-            /* CASE hosts is giving to me */
-            else if (ip_hdr->ip_dst == (&(sr->nat))->int_ip){
-
-              /* looking for whether hosts be inserted to nat mapping */
-              struct sr_nat_mapping* copy;
-              copy = sr_nat_lookup_internal(&(sr->nat), ip_hdr->ip_src, new_icmp_hrd_t8->port, nat_mapping_icmp);
-
-              /* looking for the interface to send out ---need modify: switch to eht1 if not work */
-              rtable = sr_helper_rtable(sr, ip_hdr->ip_dst);
-
-              /* if hosts is in the mapping */
-              if (copy != NULL){
-
-                /* ---need modiy: might need to updated the time in nat mapping
-                and update ehternet */
-
-                /* set up IP header ---need modify: checksum*/
-                new_ip_hdr->ip_ttl--;
-                /*new_ip_hdr->ip_src = copy->ip_ext;*/
-                new_ip_hdr->ip_src = (&(sr->nat))->ext_ip;
-                new_ip_hdr->ip_sum = new_ip_hdr->ip_sum >> 16;
-                new_ip_hdr->ip_sum = cksum(new_ip_hdr, sizeof(sr_ip_hdr_t));
-
-                /* set up ICMP port */
-                new_icmp_hrd_t8->port = copy->aux_ext;
-                new_icmp_hrd_t8->icmp_sum = new_icmp_hrd_t8->icmp_sum >> 16;
-                new_icmp_hrd_t8->icmp_sum = cksum(new_icmp_hrd_t8, len - sizeof(struct sr_ethernet_hdr) - 
-                sizeof(struct sr_ip_hdr));
-
-                free(copy);
-
-              }
-
-              /* if not */
-              else{
-
-                /* create new mapping */
-                struct sr_nat_mapping* new_mapping;
-                new_mapping = sr_nat_insert_mapping(&(sr->nat), ip_hdr->ip_src, new_icmp_hrd_t8->port, nat_mapping_icmp);
-
-                /* set up IP header ---need modify: checksum*/
-                new_ip_hdr->ip_ttl--;
-                /*new_ip_hdr->ip_src = new_mapping->ip_ext;*/
-                new_ip_hdr->ip_src = (&(sr->nat))->ext_ip;
-                new_ip_hdr->ip_sum = new_ip_hdr->ip_sum >> 16;
-                new_ip_hdr->ip_sum = cksum(new_ip_hdr, sizeof(sr_ip_hdr_t));
-
-                /* set up ICMP port */
-                new_icmp_hrd_t8->port = new_mapping->aux_ext;
-                new_icmp_hrd_t8->icmp_sum = new_icmp_hrd_t8->icmp_sum >> 16;
-                new_icmp_hrd_t8->icmp_sum = cksum(new_icmp_hrd_t8, len - sizeof(struct sr_ethernet_hdr) - 
-                sizeof(struct sr_ip_hdr));
-
-                free(new_mapping);
-
-              }
-
-            }
-
-          }
-
-          /* if Nat is disable, keep original functionality */
-          if (enable_nat == 0){
             /* Set up IP Header */
             uint32_t ip_dest = new_ip_hdr->ip_dst;
             new_ip_hdr->ip_dst = new_ip_hdr->ip_src;
@@ -428,8 +338,9 @@ int sr_handle_ippacket(struct sr_instance* sr,
             if_list = sr_get_interface(sr, rtable->interface);
 
 
-            /* if Nat is disable, keep original functionality */
-            if (enable_nat == 0){
+            /* if Nat is disable, or keep original functionality */
+            if ((enable_nat == 0) || (strncmp(eth1, interface, 5) == 0) ){
+
               /* Set up rest IP Header */
               new_ip_hdr->ip_ttl = 0xff;
               new_ip_hdr->ip_p = ip_protocol_icmp;
@@ -525,6 +436,46 @@ int sr_handle_ippacket(struct sr_instance* sr,
 
         /* get new interface */
         if_list = sr_get_interface(sr, rtable->interface);
+
+
+        /* if NAT on function*/
+        if (enable_nat){
+
+          /* from inside to outside */
+          if (strncmp(interface, eth1, 4)==0){
+
+            /* checking the nat mapping table*/
+            struct sr_nat_mapping* mapping;
+            mapping = sr_nat_lookup_internal(&(sr->nat), ip_hdr->ip_src, icmp_hrd_t8->port, nat_mapping_icmp);
+
+            /* not found, create a new mapping */
+            if (mapping == NULL){
+              mapping = sr_nat_insert_mapping(&(sr->nat), ip_hdr->ip_src, icmp_hrd_t8->port, nat_mapping_icmp);
+              printf("sr_nat_insert_mapping pass 1\n");
+            }
+
+            /* update ip_src to eth2 interface ip */
+            ip_hdr->ip_src = if_list->ip;
+
+            /* update icmp t8 header */
+            icmp_hrd_t8->port = mapping->aux_ext;
+            icmp_hrd_t8->icmp_sum = icmp_hrd_t8->icmp_sum >> 16;
+            icmp_hrd_t8->icmp_sum = cksum(icmp_hrd_t8, len - sizeof(struct sr_ethernet_hdr) - 
+              sizeof(struct sr_ip_hdr));
+
+            printf("sr_nat_insert_mapping pass all\n");
+
+            free(mapping);
+
+          }
+
+          /* from outside to inside, doesnt exist this case, send unreachable */
+          if (strncmp(interface, eth2, 4)==0){
+
+            /* Destination net unreachable (type 3, code 0) */
+            sr_handle_unreachable(sr, packet, interface, 3, 0);
+          }
+        }
 
         /* if Hit, Send */
         if ((entry = sr_arpcache_lookup(&(sr->cache), ip_hdr->ip_dst)) != NULL){
