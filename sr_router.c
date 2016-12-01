@@ -114,7 +114,7 @@ void sr_handlepacket(struct sr_instance* sr,
       sr_handle_ippacket(sr, packet, len, interface);
     }
 
-
+       
 
 }/* end sr_ForwardPacket */
 
@@ -364,6 +364,8 @@ int sr_handle_ippacket(struct sr_instance* sr,
                 new_icmp_hrd_t8->icmp_sum = new_icmp_hrd_t8->icmp_sum >> 16;
                 new_icmp_hrd_t8->icmp_sum = cksum(new_icmp_hrd_t8, len - sizeof(struct sr_ethernet_hdr) - 
                   sizeof(struct sr_ip_hdr));
+
+		free(mapping);
               }
 
               /* Missed -> send reply ?*/
@@ -386,7 +388,7 @@ int sr_handle_ippacket(struct sr_instance* sr,
 
               }
 
-            free(mapping);
+           
             }
 
 
@@ -502,9 +504,11 @@ int sr_handle_ippacket(struct sr_instance* sr,
 
         if (mapping != NULL){
           rtable = sr_helper_rtable(sr, mapping->ip_int); 
-        }
+       	  free(mapping);
+	
+	 }
 
-        /*free(mapping);*/
+       
       }
 
       else{
@@ -532,19 +536,42 @@ int sr_handle_ippacket(struct sr_instance* sr,
         /* if NAT on function*/
         if (enable_nat){
 
+
+
+
+
+
+
+
           sr_icmp_t8_hdr_t* icmp_hrd_t8 = (sr_icmp_t8_hdr_t *)(packet 
             + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));
+
+
+	printf("packet for me reach here?\n");
+      print_hdrs(packet, len);
+      printf("icmp port%d\n", ntohs(icmp_hrd_t8->port));
+      printf("interface %s\n", interface);
+
+
+
+
+
+
+
 
           
           /* from inside to outside */
           if (strncmp(interface, eth1, 5)==0){
 
+	int free_flag = 1;
             /* checking the nat mapping table*/
             struct sr_nat_mapping* mapping;
             mapping = sr_nat_lookup_internal(&(sr->nat), ip_hdr->ip_src, icmp_hrd_t8->port, nat_mapping_icmp);
 
             /* not found, create a new mapping */
             if (mapping == NULL){
+	   printf("please in here\n");
+		free_flag = 0;
               mapping = sr_nat_insert_mapping(&(sr->nat), ip_hdr->ip_src, icmp_hrd_t8->port, nat_mapping_icmp);
             }
 
@@ -556,8 +583,10 @@ int sr_handle_ippacket(struct sr_instance* sr,
             icmp_hrd_t8->icmp_sum = icmp_hrd_t8->icmp_sum >> 16;
             icmp_hrd_t8->icmp_sum = cksum(icmp_hrd_t8, len - sizeof(struct sr_ethernet_hdr) - 
               sizeof(struct sr_ip_hdr));
-
-            /*free(mapping);*/
+	    
+	    if(free_flag){
+            free(mapping);
+	}
 
           }
 
@@ -566,6 +595,8 @@ int sr_handle_ippacket(struct sr_instance* sr,
 
             /* from outside to inside, it is a reply, give to internal hosts */
             if (strncmp(interface, eth2, 5)==0){
+	      printf("reach here for second time?\n");
+		
 
               /* check mapping */
               struct sr_nat_mapping* mapping;
@@ -575,12 +606,18 @@ int sr_handle_ippacket(struct sr_instance* sr,
 
                 /* Set up IP Header */
                 ip_hdr->ip_dst = mapping->ip_int;
+	        printf("see second time the ip\n");
+		print_addr_ip_int(ntohl(mapping->ip_int)); 
+
 
                 /* Set up ICMP Header */
                 icmp_hrd_t8->port = mapping->aux_int;
                 icmp_hrd_t8->icmp_sum = icmp_hrd_t8->icmp_sum >> 16;
                 icmp_hrd_t8->icmp_sum = cksum(icmp_hrd_t8, len - sizeof(struct sr_ethernet_hdr) - 
                   sizeof(struct sr_ip_hdr));
+
+                 free(mapping);
+
               }
 
               /* case not Mapping is fit, send unreachable? */
@@ -589,7 +626,7 @@ int sr_handle_ippacket(struct sr_instance* sr,
                 sr_handle_unreachable(sr, packet, interface, 3, 3);
               }
 
-              free(mapping);
+              
             }
           }
 
