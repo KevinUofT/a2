@@ -242,6 +242,8 @@ int sr_handle_ippacket(struct sr_instance* sr,
 
     sr_ethernet_hdr_t *e_hdr = (sr_ethernet_hdr_t *)(packet);
     sr_ip_hdr_t *ip_hdr = (sr_ip_hdr_t *)(packet + sizeof(sr_ethernet_hdr_t));
+    sr_icmp_hdr_t* icmp_hdr = (sr_icmp_hdr_t *)(packet
+         + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));
 
     /* Error checking: using checksum to check whether there is error bits */
     if (cksum(ip_hdr, sizeof(sr_ip_hdr_t)) != 0xffff){
@@ -254,10 +256,18 @@ int sr_handle_ippacket(struct sr_instance* sr,
     /*check each interface, see whether the packet is to me */
     struct sr_if *iface;
     int flag = 0;
+    int nat_reply_special_mark = 0;
 
     for (iface = sr->if_list; iface != NULL; iface = iface->next){
       if (ip_hdr->ip_dst == iface->ip) {
         flag = 1;
+        
+        /* If it is a ICMP echo reply, only available WHEN NAT is function */
+        if (enable_nat && (icmp_hdr->icmp_type == 0)){
+          /* if the case is reply, meaning forward it, similar to case not for me */
+          flag = 0;
+          nat_reply_special_mark = 1;
+        }
         break;
       }
     }
@@ -277,9 +287,6 @@ int sr_handle_ippacket(struct sr_instance* sr,
           fprintf(stderr , "** Error: packet is wayy to short \n");
           return -1;
         }
-
-        sr_icmp_hdr_t* icmp_hdr = (sr_icmp_hdr_t *)(packet
-         + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));
       
         /* Error checking: using checksum to check whether there is error bits */
         if (cksum(icmp_hdr, len - sizeof(struct sr_ethernet_hdr) - 
@@ -360,6 +367,7 @@ int sr_handle_ippacket(struct sr_instance* sr,
               }
 
               /* Missed -> send reply ?*/
+
               else{
 
                 eth2_flag = 1;
@@ -480,7 +488,29 @@ int sr_handle_ippacket(struct sr_instance* sr,
 
       /* checking routing table, perform LPM */
       struct sr_rt* rtable;
-      rtable = sr_helper_rtable(sr, ip_hdr->ip_dst);
+
+
+      if (nat_reply_special_mark && (strncmp(interface, eth2, 5)==0) ){
+        /* from outside to inside, special case */
+
+        sr_icmp_t8_hdr_t* icmp_hrd_t8 = (sr_icmp_t8_hdr_t *)(packet 
+            + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));
+      
+        /* check mapping */
+        struct sr_nat_mapping* mapping;
+        mapping = sr_nat_lookup_external(&(sr->nat), icmp_hrd_t8->port, nat_mapping_icmp);
+
+        if (mapping != NULL){
+          rtable = sr_helper_rtable(sr, mapping->ip_int); 
+        }
+
+        /*free(mapping);*/
+      }
+
+      else{
+        rtable = sr_helper_rtable(sr, ip_hdr->ip_dst);
+      }
+     
 
       /* if not match, provide ICMP net unreachable */
       if (!rtable->gw.s_addr){
@@ -505,6 +535,7 @@ int sr_handle_ippacket(struct sr_instance* sr,
           sr_icmp_t8_hdr_t* icmp_hrd_t8 = (sr_icmp_t8_hdr_t *)(packet 
             + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));
 
+          
           /* from inside to outside */
           if (strncmp(interface, eth1, 5)==0){
 
@@ -530,12 +561,50 @@ int sr_handle_ippacket(struct sr_instance* sr,
 
           }
 
-          /* from outside to inside, doesnt exist this case, send unreachable */
-          if (strncmp(interface, eth2, 5)==0){
+          /* dst to me */
+          if (nat_reply_special_mark){
 
-            /* Port unreachable (type 3, code 3) */
-            sr_handle_unreachable(sr, packet, interface, 3, 3);
+            /* from outside to inside, it is a reply, give to internal hosts */
+            if (strncmp(interface, eth2, 5)==0){
+
+              /* check mapping */
+              struct sr_nat_mapping* mapping;
+              mapping = sr_nat_lookup_external(&(sr->nat), icmp_hrd_t8->port, nat_mapping_icmp);
+
+              if (mapping != NULL){
+
+                /* Set up IP Header */
+                ip_hdr->ip_dst = mapping->ip_int;
+
+                /* Set up ICMP Header */
+                icmp_hrd_t8->port = mapping->aux_int;
+                icmp_hrd_t8->icmp_sum = icmp_hrd_t8->icmp_sum >> 16;
+                icmp_hrd_t8->icmp_sum = cksum(icmp_hrd_t8, len - sizeof(struct sr_ethernet_hdr) - 
+                  sizeof(struct sr_ip_hdr));
+              }
+
+              /* case not Mapping is fit, send unreachable? */
+              else{
+                /* Port unreachable (type 3, code 3) */
+                sr_handle_unreachable(sr, packet, interface, 3, 3);
+              }
+
+              free(mapping);
+            }
           }
+
+          /* dst not to me */
+          else{
+            /* from outside to inside, doesnt exist this case, send unreachable */
+            if (strncmp(interface, eth2, 5)==0){
+
+              /* Port unreachable (type 3, code 3) */
+              sr_handle_unreachable(sr, packet, interface, 3, 3);
+
+            }
+
+          }
+          
         }
 
         /* if Hit, Send */

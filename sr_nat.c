@@ -240,9 +240,9 @@ struct sr_nat_mapping *sr_nat_insert_mapping(struct sr_nat *nat,
     }
   } 
   
-  mapping->aux_ext = port;
+  mapping->aux_ext = htons(port);
   printf("int port %d, ext port %d in insert\n", ntohs(aux_int), ntohs(port));
-
+  
   /* set up conns for Case ICMP or TCP*/
   if (type == nat_mapping_icmp){
     mapping->conns = NULL;
@@ -257,6 +257,8 @@ struct sr_nat_mapping *sr_nat_insert_mapping(struct sr_nat *nat,
   /* put back to nat->mappings */
   mapping->next = nat->mappings;
   nat->mappings = mapping;
+
+
 
   pthread_mutex_unlock(&(nat->lock));
 
