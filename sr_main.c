@@ -74,7 +74,6 @@ int main(int argc, char **argv)
     double TCP_Est_timeout = 7440.0;
     double TCP_Tran_timeout = 300.0;
     struct sr_nat_timeout_s setting;
-    struct sr_nat nat;
 
     printf("Using %s\n", VERSION_INFO);
 
@@ -190,7 +189,7 @@ int main(int argc, char **argv)
     }
 
     /* call router init (for arp subsystem etc.) */
-    sr_init(&sr, flag, &nat, setting);
+    sr_init(&sr, flag, setting);
 
 
     /* -- whizbang main loop ;-) */

@@ -33,12 +33,11 @@
  *---------------------------------------------------------------------*/
 
 static int enable_nat = 0;
-const char eth1[32] = "eth2";
-const char eth2[32] = "eth1";
+const char eth1[32] = "eth1";
+const char eth2[32] = "eth2";
 
 void sr_init(struct sr_instance* sr, 
-        int flag, 
-        struct sr_nat *nat, 
+        int flag,  
         struct sr_nat_timeout_s setting)
 {
     /* REQUIRES */
@@ -57,7 +56,7 @@ void sr_init(struct sr_instance* sr,
     
     /* Add initialization code here! */
     if (flag){
-      if (sr_nat_init(nat, setting) != 0){
+      if (sr_nat_init(&(sr->nat), setting) != 0){
         fprintf(stderr,"Error setting up NAT\n");
         exit(1);
       }
@@ -114,10 +113,6 @@ void sr_handlepacket(struct sr_instance* sr,
     if (frametype == ethertype_ip){
       sr_handle_ippacket(sr, packet, len, interface);
     }
-
-
-
-
 
 
 
@@ -313,11 +308,84 @@ int sr_handle_ippacket(struct sr_instance* sr,
           struct sr_rt* rtable;
           rtable = sr_helper_rtable(sr, ip_hdr->ip_src);    
 
+          int eth2_flag = 0;
           /* if Nat is enable */
+          if (enable_nat){
 
+            sr_icmp_t8_hdr_t* new_icmp_hrd_t8 = (sr_icmp_t8_hdr_t *)(new_packet 
+            + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));
+
+            /* if message is coming from internal host -> send reply back to host */
+            if (strncmp(eth1, interface, 5) == 0){
+
+              /* Set up rest IP Header */
+              new_ip_hdr->ip_ttl = 0xff;
+              new_ip_hdr->ip_p = ip_protocol_icmp;
+              new_ip_hdr->ip_sum = new_ip_hdr->ip_sum >> 16;
+              new_ip_hdr->ip_sum = cksum(new_ip_hdr, sizeof(sr_ip_hdr_t));
+
+              /* Set up ICMP Header */
+              new_icmp_hrd_t8->icmp_type = 0;
+              new_icmp_hrd_t8->icmp_sum = new_icmp_hrd_t8->icmp_sum >> 16;
+              new_icmp_hrd_t8->icmp_sum = cksum(new_icmp_hrd_t8, len - sizeof(struct sr_ethernet_hdr) - 
+                sizeof(struct sr_ip_hdr));
+
+            }
+
+            /* if message is coming from external host */
+            if (strncmp(eth2, interface, 5) == 0){
+              
+              /* check mapping */
+              struct sr_nat_mapping* mapping;
+              mapping = sr_nat_lookup_external(&(sr->nat), new_icmp_hrd_t8->port, nat_mapping_icmp);
+
+              /* Hit */
+              if (mapping != NULL){
+
+                /* aiming host ip */
+                rtable = sr_helper_rtable(sr, mapping->ip_int);
+
+                /* Set up IP Header */
+                new_ip_hdr->ip_dst = mapping->ip_int;
+                new_ip_hdr->ip_ttl--;
+                new_ip_hdr->ip_p = ip_protocol_icmp;
+                new_ip_hdr->ip_sum = new_ip_hdr->ip_sum >> 16;
+                new_ip_hdr->ip_sum = cksum(new_ip_hdr, sizeof(sr_ip_hdr_t));
+
+                /* Set up ICMP Header */
+                new_icmp_hrd_t8->port = mapping->aux_int;
+                new_icmp_hrd_t8->icmp_sum = new_icmp_hrd_t8->icmp_sum >> 16;
+                new_icmp_hrd_t8->icmp_sum = cksum(new_icmp_hrd_t8, len - sizeof(struct sr_ethernet_hdr) - 
+                  sizeof(struct sr_ip_hdr));
+              }
+
+              /* Missed -> send reply ?*/
+              else{
+
+                eth2_flag = 1;
+
+                /* Set up rest IP Header */
+                new_ip_hdr->ip_ttl = 0xff;
+                new_ip_hdr->ip_p = ip_protocol_icmp;
+                new_ip_hdr->ip_sum = new_ip_hdr->ip_sum >> 16;
+                new_ip_hdr->ip_sum = cksum(new_ip_hdr, sizeof(sr_ip_hdr_t));
+
+                /* Set up ICMP Header */
+                new_icmp_hrd_t8->icmp_type = 0;
+                new_icmp_hrd_t8->icmp_sum = new_icmp_hrd_t8->icmp_sum >> 16;
+                new_icmp_hrd_t8->icmp_sum = cksum(new_icmp_hrd_t8, len - sizeof(struct sr_ethernet_hdr) - 
+                  sizeof(struct sr_ip_hdr));
+
+              }
+
+            free(mapping);
+            }
+
+
+          }
 
           /* if Nat is disable, or keep original functionality */
-          if ((enable_nat == 0) || (strncmp(eth1, interface, 5) == 0) ){
+          if ((enable_nat == 0) || (strncmp(eth1, interface, 5) == 0) || (eth2_flag == 1) ){
 
             /* Set up IP Header */
             uint32_t ip_dest = new_ip_hdr->ip_dst;
@@ -332,7 +400,7 @@ int sr_handle_ippacket(struct sr_instance* sr,
 
 
             /* if Nat is disable, or keep original functionality */
-            if ((enable_nat == 0) || (strncmp(eth1, interface, 5) == 0) ){
+            if (enable_nat == 0){
 
               /* Set up rest IP Header */
               new_ip_hdr->ip_ttl = 0xff;
@@ -438,7 +506,7 @@ int sr_handle_ippacket(struct sr_instance* sr,
             + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));
 
           /* from inside to outside */
-          if (strncmp(interface, eth1, 4)==0){
+          if (strncmp(interface, eth1, 5)==0){
 
             /* checking the nat mapping table*/
             struct sr_nat_mapping* mapping;
@@ -447,7 +515,6 @@ int sr_handle_ippacket(struct sr_instance* sr,
             /* not found, create a new mapping */
             if (mapping == NULL){
               mapping = sr_nat_insert_mapping(&(sr->nat), ip_hdr->ip_src, icmp_hrd_t8->port, nat_mapping_icmp);
-              printf("sr_nat_insert_mapping pass 1\n");
             }
 
             /* update ip_src to eth2 interface ip */
@@ -459,14 +526,12 @@ int sr_handle_ippacket(struct sr_instance* sr,
             icmp_hrd_t8->icmp_sum = cksum(icmp_hrd_t8, len - sizeof(struct sr_ethernet_hdr) - 
               sizeof(struct sr_ip_hdr));
 
-            printf("sr_nat_insert_mapping pass all\n");
-
-            free(mapping);
+            /*free(mapping);*/
 
           }
 
           /* from outside to inside, doesnt exist this case, send unreachable */
-          if (strncmp(interface, eth2, 4)==0){
+          if (strncmp(interface, eth2, 5)==0){
 
             /* Destination net unreachable (type 3, code 0) */
             sr_handle_unreachable(sr, packet, interface, 3, 0);

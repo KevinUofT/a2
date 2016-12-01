@@ -69,7 +69,7 @@ int sr_read_from_server(struct sr_instance* );
 
 /* -- sr_router.c -- */
 
-void sr_init(struct sr_instance* , int , struct sr_nat *, struct sr_nat_timeout_s );
+void sr_init(struct sr_instance* , int , struct sr_nat_timeout_s );
 void sr_handlepacket(struct sr_instance* , uint8_t * , unsigned int , char* );
 int sr_handle_arppacket(struct sr_instance* ,uint8_t *, unsigned int , char* );
 int sr_handle_ippacket(struct sr_instance* ,uint8_t *, unsigned int , char* );

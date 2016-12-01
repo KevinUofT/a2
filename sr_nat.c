@@ -2,7 +2,7 @@
 #include <assert.h>
 #include "sr_nat.h"
 #include <unistd.h>
-
+#include "sr_utils.h"
 
 
 int sr_nat_init(struct sr_nat *nat, struct sr_nat_timeout_s setting) { /* Initializes the nat */
