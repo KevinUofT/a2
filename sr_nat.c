@@ -176,9 +176,9 @@ struct sr_nat_mapping *sr_nat_lookup_external(struct sr_nat *nat,
       memcpy(copy, mapping, sizeof(struct sr_nat_mapping)); 
     }
   }
-  
+
   if(copy != NULL)
-  printf("external: int port %d, ext port %d in insert\n", ntohs(copy->aux_int), ntohs(aux_ext));
+  printf("lookup_external: int port %d, ext port %d\n", ntohs(copy->aux_int), ntohs(aux_ext));
 
 
   pthread_mutex_unlock(&(nat->lock));
@@ -204,7 +204,7 @@ struct sr_nat_mapping *sr_nat_lookup_internal(struct sr_nat *nat,
   }
 
   if(copy != NULL)
-  printf("lookup_internal: int port %d, ext port %d in insert\n", ntohs(aux_int), ntohs(copy->aux_ext));
+  printf("lookup_internal: int port %d, ext port %d\n", ntohs(aux_int), ntohs(copy->aux_ext));
 
 
   pthread_mutex_unlock(&(nat->lock));
@@ -233,7 +233,6 @@ struct sr_nat_mapping *sr_nat_insert_mapping(struct sr_nat *nat,
   struct sr_nat_mapping *temp_mapping;
   uint16_t port = 1024;
 
-
   while (1){
 
     for (temp_mapping = nat->mappings; temp_mapping != NULL; temp_mapping = temp_mapping->next){
@@ -243,15 +242,15 @@ struct sr_nat_mapping *sr_nat_insert_mapping(struct sr_nat *nat,
       }
     }
 
-    if (temp_mapping  == NULL){
+    if (temp_mapping == NULL){
       break;
     }
   } 
   
   mapping->aux_ext = htons(port);
-  printf("int port %d, ext port %d in insert\n", ntohs(aux_int),ntohs(mapping->aux_ext));
   
-  /* set upconns for Case ICMP or TCP*/
+
+  /* set up conns for Case ICMP or TCP*/
   if (type == nat_mapping_icmp){
     mapping->conns = NULL;
   }
@@ -266,7 +265,7 @@ struct sr_nat_mapping *sr_nat_insert_mapping(struct sr_nat *nat,
   mapping->next = nat->mappings;
   nat->mappings = mapping;
 
-
+  printf("nat_insert: int port %d, ext port %d\n", ntohs(mapping->aux_int), ntohs(mapping->aux_ext));
 
   pthread_mutex_unlock(&(nat->lock));
 
