@@ -220,7 +220,7 @@ struct sr_nat_mapping *sr_nat_insert_mapping(struct sr_nat *nat,
   mapping->ip_ext = nat->ext_ip;
   mapping->aux_int = aux_int;
   mapping->last_updated = curtime;
-  printf("reach here 1\n");
+
   /* look for unused port */
   struct sr_nat_mapping *temp_mapping;
   uint16_t port = 1024;
@@ -240,8 +240,8 @@ struct sr_nat_mapping *sr_nat_insert_mapping(struct sr_nat *nat,
     }
   } 
   
-  mapping->aux_ext = htons(port);
-  printf("reach here 2\n");
+  mapping->aux_ext = port;
+  printf("int port %d, ext port %d in insert\n", ntohs(aux_int), ntohs(port));
 
   /* set up conns for Case ICMP or TCP*/
   if (type == nat_mapping_icmp){
@@ -257,8 +257,6 @@ struct sr_nat_mapping *sr_nat_insert_mapping(struct sr_nat *nat,
   /* put back to nat->mappings */
   mapping->next = nat->mappings;
   nat->mappings = mapping;
-
-  printf("reach here 3\n");
 
   pthread_mutex_unlock(&(nat->lock));
 

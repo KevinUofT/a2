@@ -533,8 +533,8 @@ int sr_handle_ippacket(struct sr_instance* sr,
           /* from outside to inside, doesnt exist this case, send unreachable */
           if (strncmp(interface, eth2, 5)==0){
 
-            /* Destination net unreachable (type 3, code 0) */
-            sr_handle_unreachable(sr, packet, interface, 3, 0);
+            /* Port unreachable (type 3, code 3) */
+            sr_handle_unreachable(sr, packet, interface, 3, 3);
           }
         }
 
