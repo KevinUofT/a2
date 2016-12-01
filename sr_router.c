@@ -114,7 +114,7 @@ void sr_handlepacket(struct sr_instance* sr,
       sr_handle_ippacket(sr, packet, len, interface);
     }
 
-       
+
 
 }/* end sr_ForwardPacket */
 
@@ -365,7 +365,7 @@ int sr_handle_ippacket(struct sr_instance* sr,
                 new_icmp_hrd_t8->icmp_sum = cksum(new_icmp_hrd_t8, len - sizeof(struct sr_ethernet_hdr) - 
                   sizeof(struct sr_ip_hdr));
 
-		free(mapping);
+                free(mapping);
               }
 
               /* Missed -> send reply ?*/
@@ -388,14 +388,15 @@ int sr_handle_ippacket(struct sr_instance* sr,
 
               }
 
-           
+            
             }
 
 
           }
 
           /* if Nat is disable, or keep original functionality */
-          if ((enable_nat == 0) || (strncmp(eth1, interface, 5) == 0) || (eth2_flag == 1) ){
+          if ((enable_nat == 0) || ((enable_nat == 1) && (strncmp(eth1, interface, 5) == 0)) 
+            || ((enable_nat == 1) && (eth2_flag == 1)) ){
 
             /* Set up IP Header */
             uint32_t ip_dest = new_ip_hdr->ip_dst;
@@ -503,12 +504,11 @@ int sr_handle_ippacket(struct sr_instance* sr,
         mapping = sr_nat_lookup_external(&(sr->nat), icmp_hrd_t8->port, nat_mapping_icmp);
 
         if (mapping != NULL){
-          rtable = sr_helper_rtable(sr, mapping->ip_int); 
-       	  free(mapping);
-	
-	 }
+          rtable = sr_helper_rtable(sr, mapping->ip_int);
+          free(mapping); 
+        }
 
-       
+        
       }
 
       else{
@@ -535,37 +535,37 @@ int sr_handle_ippacket(struct sr_instance* sr,
 
         /* if NAT on function*/
         if (enable_nat){
-		
+
           sr_icmp_t8_hdr_t* icmp_hrd_t8 = (sr_icmp_t8_hdr_t *)(packet 
             + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));
+
           
           /* from inside to outside */
           if (strncmp(interface, eth1, 5)==0){
 
-	int free_flag = 1;
             /* checking the nat mapping table*/
+            int lookup_free_flag = 1;
             struct sr_nat_mapping* mapping;
             mapping = sr_nat_lookup_internal(&(sr->nat), ip_hdr->ip_src, icmp_hrd_t8->port, nat_mapping_icmp);
 
             /* not found, create a new mapping */
             if (mapping == NULL){
-	   printf("please in here\n");
-		free_flag = 0;
               mapping = sr_nat_insert_mapping(&(sr->nat), ip_hdr->ip_src, icmp_hrd_t8->port, nat_mapping_icmp);
+              lookup_free_flag = 0;
             }
 
             /* update ip_src to eth2 interface ip */
-            ip_hdr->ip_src = if_list->ip;
+            ip_hdr->ip_src = sr_get_interface(sr, eth2)->ip;
 
             /* update icmp t8 header */
             icmp_hrd_t8->port = mapping->aux_ext;
             icmp_hrd_t8->icmp_sum = icmp_hrd_t8->icmp_sum >> 16;
             icmp_hrd_t8->icmp_sum = cksum(icmp_hrd_t8, len - sizeof(struct sr_ethernet_hdr) - 
               sizeof(struct sr_ip_hdr));
-	    
-	    if(free_flag){
-            free(mapping);
-	}
+
+            if (lookup_free_flag){
+              free(mapping);
+            } 
 
           }
 
@@ -574,8 +574,6 @@ int sr_handle_ippacket(struct sr_instance* sr,
 
             /* from outside to inside, it is a reply, give to internal hosts */
             if (strncmp(interface, eth2, 5)==0){
-	      printf("reach here for second time?\n");
-		
 
               /* check mapping */
               struct sr_nat_mapping* mapping;
@@ -585,18 +583,13 @@ int sr_handle_ippacket(struct sr_instance* sr,
 
                 /* Set up IP Header */
                 ip_hdr->ip_dst = mapping->ip_int;
-	        printf("see second time the ip\n");
-		print_addr_ip_int(ntohl(mapping->ip_int)); 
-
 
                 /* Set up ICMP Header */
                 icmp_hrd_t8->port = mapping->aux_int;
                 icmp_hrd_t8->icmp_sum = icmp_hrd_t8->icmp_sum >> 16;
                 icmp_hrd_t8->icmp_sum = cksum(icmp_hrd_t8, len - sizeof(struct sr_ethernet_hdr) - 
                   sizeof(struct sr_ip_hdr));
-
-                 free(mapping);
-
+                free(mapping);
               }
 
               /* case not Mapping is fit, send unreachable? */
