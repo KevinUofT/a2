@@ -535,30 +535,9 @@ int sr_handle_ippacket(struct sr_instance* sr,
 
         /* if NAT on function*/
         if (enable_nat){
-
-
-
-
-
-
-
-
+		
           sr_icmp_t8_hdr_t* icmp_hrd_t8 = (sr_icmp_t8_hdr_t *)(packet 
             + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));
-
-
-	printf("packet for me reach here?\n");
-      print_hdrs(packet, len);
-      printf("icmp port%d\n", ntohs(icmp_hrd_t8->port));
-      printf("interface %s\n", interface);
-
-
-
-
-
-
-
-
           
           /* from inside to outside */
           if (strncmp(interface, eth1, 5)==0){
