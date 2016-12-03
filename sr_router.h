@@ -56,6 +56,7 @@ struct sr_instance
     pthread_attr_t attr;
     FILE* logfile;
 
+    int enable_nat;
     struct sr_nat nat; /* Network Address Translator */
 };
 
@@ -76,6 +77,8 @@ int sr_handle_ippacket(struct sr_instance* ,uint8_t *, unsigned int , char* );
 void sr_handle_unreachable(struct sr_instance*, uint8_t *, char*, uint8_t, uint8_t);
 uint8_t* sr_copy_packet(uint8_t* , unsigned int);
 struct sr_rt* sr_helper_rtable(struct sr_instance* , uint32_t);
+int sr_handle_tcppacket_from_inside(struct sr_instance* , uint8_t * ,unsigned int , char* );
+int sr_handle_tcppacket_from_outside(struct sr_instance* , uint8_t * ,unsigned int , char* );
 
 
 /* -- sr_if.c -- */
