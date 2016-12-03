@@ -26,13 +26,13 @@ int sr_nat_init(struct sr_nat *nat, struct sr_nat_timeout_s setting) { /* Initia
 
   nat->mappings = NULL;
   /* Initialize any variables here */
-  struct in_addr external;
+  /*struct in_addr external;
   struct in_addr internal;
   inet_pton(AF_INET, "172.64.3.1", &(external));
   inet_pton(AF_INET, "10.0.1.11", &(internal));
 
   nat->ext_ip = external.s_addr;
-  nat->int_ip = internal.s_addr;
+  nat->int_ip = internal.s_addr;*/
   nat->setting = setting;
 
 
@@ -52,13 +52,14 @@ int sr_nat_destroy(struct sr_nat *nat) {  /* Destroys the nat (free memory) */
     struct sr_nat_mapping *mapping = nat->mappings;
     struct sr_nat_mapping *curr_mapping;
 
-    struct sr_nat_connection *conn = mapping->conns;
+    struct sr_nat_connection *conn;
     struct sr_nat_connection *curr_conn;
 
     /* free all the mappings */ 
     while (mapping != NULL){
       curr_mapping = mapping;
 
+      conn = mapping->conns;
       /* free all the conns in mapping */
       while (conn != NULL){
         curr_conn = conn;
@@ -162,7 +163,8 @@ void *sr_nat_timeout(void *nat_ptr) {  /* Periodic Timout handling */
 /* Get the mapping associated with given external port.
    You must free the returned structure if it is not NULL. */
 struct sr_nat_mapping *sr_nat_lookup_external(struct sr_nat *nat,
-    uint16_t aux_ext, sr_nat_mapping_type type ) {
+    uint16_t aux_ext, sr_nat_mapping_type type,
+    uint32_t source_ip, uint16_t source_port, int ack, int syn, int fin) {
 
   pthread_mutex_lock(&(nat->lock));
 
@@ -170,12 +172,43 @@ struct sr_nat_mapping *sr_nat_lookup_external(struct sr_nat *nat,
   struct sr_nat_mapping *copy = NULL;
   struct sr_nat_mapping *mapping = NULL;
 
-  for(mapping = nat->mappings; mapping != NULL; mapping = mapping->next){
-    if (mapping->aux_ext == aux_ext && mapping->type == type){
-      copy = (struct sr_nat_mapping *)malloc(sizeof(struct sr_nat_mapping));
-      memcpy(copy, mapping, sizeof(struct sr_nat_mapping)); 
+  time_t curtime = time(NULL);
+
+  /* if type is ICMP, No need to look up TCP */
+  if (type == nat_mapping_icmp){
+
+    for(mapping = nat->mappings; mapping != NULL; mapping = mapping->next){
+      if (mapping->aux_ext == aux_ext && mapping->type == type){
+        copy = (struct sr_nat_mapping *)malloc(sizeof(struct sr_nat_mapping));
+        memcpy(copy, mapping, sizeof(struct sr_nat_mapping)); 
+      }
     }
   }
+
+  /* similar case as internal */
+  else{
+
+    struct sr_nat_connection* connection = NULL;
+
+    /* find right mapping */
+    for(mapping = nat->mappings; mapping != NULL; mapping = mapping->next){
+      if (mapping->aux_ext == aux_ext && mapping->type == type){
+        copy = (struct sr_nat_mapping *)malloc(sizeof(struct sr_nat_mapping));
+        memcpy(copy, mapping, sizeof(struct sr_nat_mapping)); 
+
+        /* find right connection */
+        for (connection = mapping->conns; connection != NULL; connection = connection->next){
+          if (connection->target_ip == source_ip && connection->target_port == source_port){
+            /* update it */
+            sr_nat_update_connection_ext(connection, ack, syn, fin, curtime);
+          }
+
+        }
+      }
+    }
+
+  }
+
 
   if(copy != NULL)
   printf("lookup_external: int port %d, ext port %d\n", ntohs(copy->aux_int), ntohs(aux_ext));
@@ -188,7 +221,8 @@ struct sr_nat_mapping *sr_nat_lookup_external(struct sr_nat *nat,
 /* Get the mapping associated with given internal (ip, port) pair.
    You must free the returned structure if it is not NULL. */
 struct sr_nat_mapping *sr_nat_lookup_internal(struct sr_nat *nat,
-  uint32_t ip_int, uint16_t aux_int, sr_nat_mapping_type type ) {
+  uint32_t ip_int, uint16_t aux_int, sr_nat_mapping_type type,
+  uint32_t target_ip, uint16_t target_port, int ack, int syn, int fin) {
 
   pthread_mutex_lock(&(nat->lock));
 
@@ -196,12 +230,56 @@ struct sr_nat_mapping *sr_nat_lookup_internal(struct sr_nat *nat,
   struct sr_nat_mapping *copy = NULL;
   struct sr_nat_mapping *mapping = NULL;
 
-  for(mapping = nat->mappings; mapping != NULL; mapping = mapping->next){
-    if (mapping->ip_int == ip_int && mapping->aux_int == aux_int && mapping->type == type){
-      copy = (struct sr_nat_mapping *)malloc(sizeof(struct sr_nat_mapping));
-      memcpy(copy, mapping, sizeof(struct sr_nat_mapping)); 
+  time_t curtime = time(NULL);
+
+  /* if type is ICMP, No need to look up TCP */
+  if (type == nat_mapping_icmp){
+
+    for(mapping = nat->mappings; mapping != NULL; mapping = mapping->next){
+      if (mapping->ip_int == ip_int && mapping->aux_int == aux_int && mapping->type == type){
+        copy = (struct sr_nat_mapping *)malloc(sizeof(struct sr_nat_mapping));
+        memcpy(copy, mapping, sizeof(struct sr_nat_mapping)); 
+      }
+    }    
+  }
+
+  /* if type is TCP, Need to look up conns */
+  else{
+
+    struct sr_nat_connection* connection = NULL;
+    int flag_check = 0;
+
+    /* find right mapping */
+    for(mapping = nat->mappings; mapping != NULL; mapping = mapping->next){
+      if (mapping->ip_int == ip_int && mapping->aux_int == aux_int && mapping->type == type){
+        copy = (struct sr_nat_mapping *)malloc(sizeof(struct sr_nat_mapping));
+        memcpy(copy, mapping, sizeof(struct sr_nat_mapping)); 
+
+        /* find right connection and update it*/
+        for (connection = mapping->conns; connection != NULL; connection = connection->next){
+          if (connection->target_ip == target_ip && connection->target_port == target_port){
+            flag_check = 1;
+            sr_nat_update_connection_int(connection, ack, syn, fin, curtime);
+          }
+        }
+
+        /* if we have the mapping, but not the conn, create a connection and update it */
+        if (flag_check == 0){
+          connection = sr_create_connection(target_ip, target_port, curtime);
+
+          /* set it at the front */
+          connection->next = mapping->conns;
+          mapping->conns = connection;
+
+          /*update it */
+          sr_nat_update_connection_int(connection, ack, syn, fin, curtime);
+
+        }
+
+      }
     }
   }
+  
 
   if(copy != NULL)
   printf("lookup_internal: int port %d, ext port %d\n", ntohs(aux_int), ntohs(copy->aux_ext));
@@ -215,7 +293,8 @@ struct sr_nat_mapping *sr_nat_lookup_internal(struct sr_nat *nat,
    Actually returns a copy to the new mapping, for thread safety.
  */
 struct sr_nat_mapping *sr_nat_insert_mapping(struct sr_instance* sr, struct sr_nat *nat,
-  uint32_t ip_int, uint16_t aux_int, sr_nat_mapping_type type ) {
+  uint32_t ip_int, uint16_t aux_int, sr_nat_mapping_type type,
+  uint32_t target_ip, uint16_t target_port, int ack, int syn, int fin ) {
 
   pthread_mutex_lock(&(nat->lock));
 
@@ -257,8 +336,8 @@ struct sr_nat_mapping *sr_nat_insert_mapping(struct sr_instance* sr, struct sr_n
   }
 
   else{
-    struct sr_nat_connection *conn = mapping->conns;
-    conn->last_updated = curtime;
+    mapping->conns = sr_create_connection(target_ip, target_port, curtime);
+    sr_nat_update_connection_int(mapping->conns, ack, syn, fin, curtime);
   }
 
   
@@ -276,3 +355,110 @@ struct sr_nat_mapping *sr_nat_insert_mapping(struct sr_instance* sr, struct sr_n
 
   return copy;
 }
+
+
+/* create a new connection */
+struct sr_nat_connection* sr_create_connection(uint32_t target_ip,
+ uint16_t target_port, time_t last_updated){
+
+  struct sr_nat_connection* new_conn;
+  new_conn = (struct sr_nat_connection *)malloc(sizeof(struct sr_nat_connection));
+
+  new_conn->target_ip = target_ip;
+  new_conn->target_port = target_port;
+  new_conn->last_updated = last_updated;
+  new_conn->state = LISTEN;
+
+  return new_conn;
+
+}
+
+void sr_nat_update_connection_ext(struct sr_nat_connection *conn, int ack, int syn, int fin, time_t last_updated){
+  /* case 010 */
+  if ((!ack) && syn && (!fin)){
+    conn->state = SYN_RECEIVED;
+  }
+
+  /* case 100 and previous state is SYN_RCVD */
+  else if (ack && (!syn) && (!fin) && (conn->state == SYN_RECEIVED)){
+    conn->state = ESTABLISHED;
+  }
+
+  /* case 001 and ESTABLISHED */
+  else if (!ack && !syn && fin && (conn->state == ESTABLISHED)){
+    conn->state = CLOSE_WAIT;
+  }
+
+  /* case 101 and FIN_WAIT_1 */
+  else if (ack && !syn && fin && (conn->state == FIN_WAIT_1)){
+    conn->state = FIN_WAIT_2;
+  }
+
+  /* case 001 and FIN_WAIT_1 */
+  else if (!ack && !syn && fin && (conn->state == FIN_WAIT_1)){
+    conn->state = CLOSING;
+  }
+
+  /* case 100 and CLOSING */
+  else if (ack && !syn && !fin && (conn->state == CLOSING)){
+    conn->state = TIME_WAIT;
+  }
+
+  /* case 001 and FIN_WAIT_2 */
+  else if (!ack && !syn && fin && (conn->state == FIN_WAIT_2)){
+    conn->state = TIME_WAIT;
+  }
+
+  /* case 100 and LAST_ACK */
+  else if (ack && !syn && !fin && (conn->state == LAST_ACK)){
+    conn->state = CLOSED;
+  }
+
+  conn->last_updated = last_updated;
+}
+
+void sr_nat_update_connection_int(struct sr_nat_connection *conn, int ack, int syn, int fin, time_t last_updated){
+
+  /* case 010 */
+  if ((!ack) && syn && (!fin)){
+    conn->state = SYN_SENT;
+  }
+
+  /* case 100 and previous state is SYN_SENT */
+  else if (ack && (!syn) && (!fin) && (conn->state == SYN_SENT)){
+    conn->state = ESTABLISHED;
+  }
+
+  /* case 001 and SYN_RECEIVED */
+  else if (!ack && !syn && fin && (conn->state == SYN_RECEIVED)){
+    conn->state = FIN_WAIT_1;
+  }
+
+  /* case 001 and ESTABLISHED */
+  else if (!ack && !syn && fin && (conn->state == ESTABLISHED)){
+    conn->state = FIN_WAIT_1;
+  }
+
+  /* case 101 and FIN_WAIT_1 */
+  else if (ack && !syn && fin && (conn->state == ESTABLISHED)){
+    conn->state = CLOSE_WAIT;
+  }
+
+  /* case 001 and CLOSING */
+  else if (!ack && !syn && fin && (conn->state == CLOSE_WAIT)){
+    conn->state = LAST_ACK;
+  }
+
+  /* case 100 and FIN_WAIT_1 */
+  else if (ack && !syn && !fin && (conn->state == FIN_WAIT_1)){
+    conn->state = CLOSING;
+  }
+
+  /* case 100 and TIME_WAIT */
+  else if (ack && !syn && !fin && (conn->state == FIN_WAIT_2)){
+    conn->state = TIME_WAIT;
+  }
+
+  conn->last_updated = last_updated;
+}
+
