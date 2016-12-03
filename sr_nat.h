@@ -43,6 +43,9 @@ struct sr_nat_connection {
   time_t last_updated;
   tcp_connection_state state;
 
+  uint32_t target_ip;
+  uint16_t target_port;
+
 
 
   struct sr_nat_connection *next;
@@ -82,17 +85,29 @@ void *sr_nat_timeout(void *nat_ptr);  /* Periodic Timout */
 /* Get the mapping associated with given external port.
    You must free the returned structure if it is not NULL. */
 struct sr_nat_mapping *sr_nat_lookup_external(struct sr_nat *nat,
-    uint16_t aux_ext, sr_nat_mapping_type type );
+    uint16_t aux_ext, sr_nat_mapping_type type,
+    uint32_t source_ip, uint16_t source_port, int ack, int syn, int fin );
 
 /* Get the mapping associated with given internal (ip, port) pair.
    You must free the returned structure if it is not NULL. */
 struct sr_nat_mapping *sr_nat_lookup_internal(struct sr_nat *nat,
-  uint32_t ip_int, uint16_t aux_int, sr_nat_mapping_type type );
+  uint32_t ip_int, uint16_t aux_int, sr_nat_mapping_type type, 
+  uint32_t source_ip, uint16_t source_port, int ack, int syn, int fin );
 
 /* Insert a new mapping into the nat's mapping table.
    You must free the returned structure if it is not NULL. */
 struct sr_nat_mapping *sr_nat_insert_mapping(struct sr_instance* sr, struct sr_nat *nat,
-  uint32_t ip_int, uint16_t aux_int, sr_nat_mapping_type type );
+  uint32_t ip_int, uint16_t aux_int, sr_nat_mapping_type type,
+  uint32_t source_ip, uint16_t source_port, int ack, int syn, int fin );
+
+struct sr_nat_connection* sr_create_connection(uint32_t target_ip,
+ uint16_t target_port, time_t last_updated);
+
+void sr_nat_update_connection_ext(struct sr_nat_connection *conn,
+ int ack, int syn, int fin, time_t last_updated);
+
+void sr_nat_update_connection_int(struct sr_nat_connection *conn,
+ int ack, int syn, int fin, time_t last_updated);
 
 
 #endif
