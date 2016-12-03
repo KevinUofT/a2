@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include "sr_if.h"
 
 typedef enum {
   nat_mapping_icmp,
@@ -60,8 +61,8 @@ struct sr_nat_mapping {
 
 struct sr_nat {
   /* add any fields here */
-  uint32_t ext_ip;
-  uint32_t int_ip;
+  /*uint32_t ext_ip;
+  uint32_t int_ip;*/
   struct sr_nat_timeout_s setting;
 
   struct sr_nat_mapping *mappings;
@@ -90,7 +91,7 @@ struct sr_nat_mapping *sr_nat_lookup_internal(struct sr_nat *nat,
 
 /* Insert a new mapping into the nat's mapping table.
    You must free the returned structure if it is not NULL. */
-struct sr_nat_mapping *sr_nat_insert_mapping(struct sr_nat *nat,
+struct sr_nat_mapping *sr_nat_insert_mapping(struct sr_instance* sr, struct sr_nat *nat,
   uint32_t ip_int, uint16_t aux_int, sr_nat_mapping_type type );
 
 
