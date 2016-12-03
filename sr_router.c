@@ -60,7 +60,6 @@ void sr_init(struct sr_instance* sr,
         exit(1);
       }
 
-      sr->enable_nat = 1;
     }
     
 
@@ -365,7 +364,7 @@ int sr_handle_ippacket(struct sr_instance* sr,
               
               /* check mapping */
               struct sr_nat_mapping* mapping;
-              mapping = sr_nat_lookup_external(&(sr->nat), new_icmp_hrd_t8->port, nat_mapping_icmp);
+              mapping = sr_nat_lookup_external(&(sr->nat), new_icmp_hrd_t8->port, nat_mapping_icmp, 0, 0, 0, 0, 0);
 
               /* Hit */
               if (mapping != NULL){
@@ -383,14 +382,17 @@ int sr_handle_ippacket(struct sr_instance* sr,
                 /* Set up ICMP Header */
                 new_icmp_hrd_t8->port = mapping->aux_int;
                 new_icmp_hrd_t8->icmp_sum = new_icmp_hrd_t8->icmp_sum >> 16;
+                /*
                 new_icmp_hrd_t8->icmp_sum = cksum(new_icmp_hrd_t8, len - sizeof(struct sr_ethernet_hdr) - 
                   sizeof(struct sr_ip_hdr));
-
+                */
+                
+                
                 free(mapping);
               }
 
               /* Missed -> send reply ?*/
-
+            
               else{
 
                 eth2_flag = 1;
@@ -528,7 +530,7 @@ int sr_handle_ippacket(struct sr_instance* sr,
       
         /* check mapping */
         struct sr_nat_mapping* mapping;
-        mapping = sr_nat_lookup_external(&(sr->nat), icmp_hrd_t8->port, nat_mapping_icmp);
+        mapping = sr_nat_lookup_external(&(sr->nat), icmp_hrd_t8->port, nat_mapping_icmp, 0, 0, 0, 0, 0);
 
         if (mapping != NULL){
           rtable = sr_helper_rtable(sr, mapping->ip_int);
@@ -571,11 +573,11 @@ int sr_handle_ippacket(struct sr_instance* sr,
 
             /* checking the nat mapping table*/
             struct sr_nat_mapping* mapping;
-            mapping = sr_nat_lookup_internal(&(sr->nat), ip_hdr->ip_src, icmp_hrd_t8->port, nat_mapping_icmp);
+            mapping = sr_nat_lookup_internal(&(sr->nat), ip_hdr->ip_src, icmp_hrd_t8->port, nat_mapping_icmp, 0, 0, 0, 0, 0);
 
             /* not found, create a new mapping */
             if (mapping == NULL){
-              mapping = sr_nat_insert_mapping(sr, &(sr->nat), ip_hdr->ip_src, icmp_hrd_t8->port, nat_mapping_icmp);
+              mapping = sr_nat_insert_mapping(sr, &(sr->nat), ip_hdr->ip_src, icmp_hrd_t8->port, nat_mapping_icmp, 0, 0, 0, 0, 0);
             }
 
             /* update ip_src to eth2 interface ip */
@@ -601,7 +603,7 @@ int sr_handle_ippacket(struct sr_instance* sr,
 
               /* check mapping */
               struct sr_nat_mapping* mapping;
-              mapping = sr_nat_lookup_external(&(sr->nat), icmp_hrd_t8->port, nat_mapping_icmp);
+              mapping = sr_nat_lookup_external(&(sr->nat), icmp_hrd_t8->port, nat_mapping_icmp, 0, 0, 0, 0, 0);
 
               if (mapping != NULL){
 
@@ -636,12 +638,6 @@ int sr_handle_ippacket(struct sr_instance* sr,
 
             }
           }
-        }
-
-        if(!sr->enable_nat){
-          ip_hdr->ip_src = sr_get_interface(sr, "eth2")->ip;
-            ip_hdr->ip_sum = ip_hdr->ip_sum >> 16;
-            ip_hdr->ip_sum = cksum(ip_hdr, sizeof(struct sr_ip_hdr));
         }
 
         /* if Hit, Send */
@@ -680,14 +676,28 @@ int sr_handle_tcppacket_from_outside(struct sr_instance* sr,
         char* interface/* lent */){
 
     /* set up header */
+    /*
     sr_ethernet_hdr_t *e_hdr = (sr_ethernet_hdr_t *)(packet);
     sr_ip_hdr_t *ip_hdr = (sr_ip_hdr_t *)(packet + sizeof(sr_ethernet_hdr_t));
-    sr_tcp_hdr_t* tcp_hrd = (sr_tcp_hdr_t *)(packet 
+    sr_tcp_hdr_t* tcp_hdr = (sr_tcp_hdr_t *)(packet 
             + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));
+    */
+    /* get ack, syn, fin */
+    /*
+    int ack = tcp_hdr->flag & (1 << 4);
+    int syn = tcp_hdr->flag & (1 << 1);
+    int fin = tcp_hdr->flag & 1;
+    */
 
+    /*
     struct sr_nat_mapping* mapping;
-    if (mapping = sr_nat_lookup_external(&(sr->nat), tcp_hrd->port_dst, nat_mapping_tcp))
+    mapping = sr_nat_lookup_external(&(sr->nat), tcp_hdr->port_dst, nat_mapping_tcp);
 
+
+    if (mapping != NULL){
+      free(mapping);      
+    }
+    */
 
 
   return 0;
@@ -698,29 +708,89 @@ int sr_handle_tcppacket_from_inside(struct sr_instance* sr,
         unsigned int len,
         char* interface/* lent */){
 
-    /* set up header */
-    sr_ethernet_hdr_t *e_hdr = (sr_ethernet_hdr_t *)(packet);
-    sr_ip_hdr_t *ip_hdr = (sr_ip_hdr_t *)(packet + sizeof(sr_ethernet_hdr_t));
-    sr_tcp_hdr_t* tcp_hrd = (sr_tcp_hdr_t *)(packet 
-            + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));
+  /* set up header */
 
-    /* mark enter gate */
+  sr_ethernet_hdr_t *e_hdr = (sr_ethernet_hdr_t *)(packet);
+  sr_ip_hdr_t *ip_hdr = (sr_ip_hdr_t *)(packet + sizeof(sr_ethernet_hdr_t));
+  sr_tcp_hdr_t* tcp_hdr = (sr_tcp_hdr_t *)(packet 
+          + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));
 
-    /* clients to server */
-    /*
-    if (strncmp(eth1, interface, 4) == 0){
- 
+  /* get ack, syn, fin */
+  int ack = tcp_hdr->flag & (1 << 4);
+  int syn = tcp_hdr->flag & (1 << 1);
+  int fin = tcp_hdr->flag & 1;
+
+  struct sr_nat_mapping* mapping;
+  mapping = sr_nat_lookup_internal(&(sr->nat), ip_hdr->ip_src, tcp_hdr->port_src, nat_mapping_tcp,
+   ip_hdr->ip_dst, tcp_hdr->port_dst, ack, syn, fin);
+
+  /* Not found, create a new mapping for this tcp connection */
+  if (mapping == NULL){
+    mapping = sr_nat_insert_mapping(sr, &(sr->nat), ip_hdr->ip_src, tcp_hdr->port_src, nat_mapping_tcp,
+      ip_hdr->ip_dst, tcp_hdr->port_dst, ack, syn, fin);
+  }
+
+  /* set up ip_hdr */
+  /* update ip_src to eth2 interface ip */
+  ip_hdr->ip_src = sr_get_interface(sr, "eth2")->ip;
+  ip_hdr->ip_sum = ip_hdr->ip_sum >> 16;
+  ip_hdr->ip_sum = cksum(ip_hdr, 4*(ip_hdr->ip_hl));
+
+  /* update tcp header */
+  tcp_hdr->port_src = mapping->aux_ext;
+  tcp_hdr->tcp_sum = tcp_hdr->tcp_sum >> 16;
+  tcp_hdr->tcp_sum = cksum(tcp_hdr, len - sizeof(struct sr_ethernet_hdr) - 
+    sizeof(struct sr_ip_hdr));
+
+  free(mapping);
+
+  /* ---------------- similar function as forward ------------------ */
+
+  /* checking routing table, perform LPM */
+  struct sr_rt* rtable;
+  rtable = sr_helper_rtable(sr, ip_hdr->ip_dst);
+
+  /* if not match, provide ICMP net unreachable */
+  if (!rtable->gw.s_addr){
+
+    /* Destination net unreachable (type 3, code 0) */
+    sr_handle_unreachable(sr, packet, interface, 3, 0);
+  }
+
+  /* if match, check ARP cache */
+  else{
+
+    struct sr_arpentry* entry;
+    struct sr_if* if_list; 
+    /* get new interface */
+    if_list = sr_get_interface(sr, rtable->interface);
+
+
+    /* if Hit, Send */
+    if ((entry = sr_arpcache_lookup(&(sr->cache), ip_hdr->ip_dst)) != NULL){
+
+      /* setup Ip Header */
+      ip_hdr->ip_ttl--;
+      ip_hdr->ip_sum = ip_hdr->ip_sum >> 16;
+      ip_hdr->ip_sum = cksum(ip_hdr, 4*(ip_hdr->ip_hl));
+
+      /* set up Etherent header */
+      memcpy(e_hdr->ether_shost, if_list->addr, ETHER_ADDR_LEN);
+      memcpy(e_hdr->ether_dhost, entry->mac, ETHER_ADDR_LEN);
+
+      sr_send_packet(sr, packet, len, if_list->name); 
+      free(entry);
+
     }
 
-
-    else if (strncmp(eth2, interface, 4) == 0){
-      eth2_m = 1;
+    /*if Miss */
+    else{
+      sr_arpcache_queuereq(&(sr->cache), rtable->gw.s_addr, packet, len, rtable->interface);
+    
     }
+  }
 
-    if ()
-    */
-
-
+  free(rtable);
 
   return 0;
 }
@@ -819,7 +889,7 @@ struct sr_rt *sr_helper_rtable(struct sr_instance* sr, uint32_t ip)
   struct sr_rt *rt;
   for (rt = sr->routing_table; rt != NULL; rt = rt->next) {
     if (((ip & rt->mask.s_addr) == rt->dest.s_addr) && 
-        (rt->mask.s_addr > rtable->mask.s_addr)) {
+        (rt->mask.s_addr >= rtable->mask.s_addr)) {
       memcpy(rtable, rt, sizeof(struct sr_rt));      
     }
   }
