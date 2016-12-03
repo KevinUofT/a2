@@ -214,7 +214,7 @@ struct sr_nat_mapping *sr_nat_lookup_internal(struct sr_nat *nat,
 /* Insert a new mapping into the nat's mapping table.
    Actually returns a copy to the new mapping, for thread safety.
  */
-struct sr_nat_mapping *sr_nat_insert_mapping(struct sr_nat *nat,
+struct sr_nat_mapping *sr_nat_insert_mapping(struct sr_instance* sr, struct sr_nat *nat,
   uint32_t ip_int, uint16_t aux_int, sr_nat_mapping_type type ) {
 
   pthread_mutex_lock(&(nat->lock));
@@ -225,7 +225,8 @@ struct sr_nat_mapping *sr_nat_insert_mapping(struct sr_nat *nat,
   time_t curtime = time(NULL);
   mapping->type = type;
   mapping->ip_int = ip_int;
-  mapping->ip_ext = nat->ext_ip;
+  /*mapping->ip_ext = nat->ext_ip;*/
+  mapping->ip_ext = sr_get_interface(sr, "eth2")->ip;
   mapping->aux_int = aux_int;
   mapping->last_updated = curtime;
 
@@ -236,7 +237,7 @@ struct sr_nat_mapping *sr_nat_insert_mapping(struct sr_nat *nat,
   while (1){
 
     for (temp_mapping = nat->mappings; temp_mapping != NULL; temp_mapping = temp_mapping->next){
-      if (htons(port) == temp_mapping->aux_ext){
+      if (port == temp_mapping->aux_ext){
         port += 1;
         break;
       }
@@ -247,7 +248,7 @@ struct sr_nat_mapping *sr_nat_insert_mapping(struct sr_nat *nat,
     }
   } 
   
-  mapping->aux_ext = htons(port);
+  mapping->aux_ext = port;
   
 
   /* set up conns for Case ICMP or TCP*/
@@ -265,9 +266,13 @@ struct sr_nat_mapping *sr_nat_insert_mapping(struct sr_nat *nat,
   mapping->next = nat->mappings;
   nat->mappings = mapping;
 
+  /* make a copy to return */
+  struct sr_nat_mapping *copy = (struct sr_nat_mapping *)malloc(sizeof(struct sr_nat_mapping));
+  memcpy(copy, mapping, sizeof(struct sr_nat_mapping));
+
   printf("nat_insert: int port %d, ext port %d\n", ntohs(mapping->aux_int), ntohs(mapping->aux_ext));
 
   pthread_mutex_unlock(&(nat->lock));
 
-  return mapping;
+  return copy;
 }
